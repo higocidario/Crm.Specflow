@@ -6,10 +6,12 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Configuration;
+using System.Diagnostics;
 
 namespace Vermaat.Crm.Specflow.Commands
 {
-    class WaitForAsyncJobsCommand : ApiOnlyCommand
+    public class WaitForAsyncJobsCommand : ApiOnlyCommand
     {
         private readonly string _alias;
 
@@ -21,15 +23,23 @@ namespace Vermaat.Crm.Specflow.Commands
         public override void Execute()
         {
             EntityReference aliasRef = _crmContext.RecordCache[_alias];
+            int sleepInSeconds = int.Parse(HelperMethods.GetAppSettingsValue("AsyncJobTimeoutInSeconds", true, "30"));
 
-            int tryCount = 0;
-            while (tryCount < 15 && QueryHelper.HasOpenSystemJobs(aliasRef.Id, _crmContext.Service))
+            Stopwatch timer = new Stopwatch();
+            timer.Start();
+
+            while (QueryHelper.HasOpenSystemJobs(aliasRef.Id, GlobalTestingContext.ConnectionManager.AdminConnection))
             {
-                Thread.Sleep(2000);
-                tryCount++;
-            }
+                Logger.WriteLine("Not all system jobs are completed. Waiting");
 
-            Assert.AreNotEqual(15, tryCount, "Not all system jobs were finished on time");
+                if (timer.Elapsed.TotalSeconds < sleepInSeconds)
+                    Thread.Sleep(2000);
+                else
+                    throw new TestExecutionException(Constants.ErrorCodes.ASYNC_TIMEOUT);
+            }
+            
+            timer.Stop();
+            Logger.WriteLine("System jobs are finished");
         }
     }
 }

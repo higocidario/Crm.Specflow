@@ -2,38 +2,57 @@
 using Microsoft.Dynamics365.UIAutomation.Browser;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using Vermaat.Crm.Specflow.EasyRepro;
 
 namespace Vermaat.Crm.Specflow
 {
-    public class SeleniumTestingContext : IDisposable
+    public class SeleniumTestingContext
     {
-        private readonly Lazy<UCIBrowser> _browser;
 
-        public UCIBrowser Browser => _browser.Value;
+        private readonly CrmTestingContext _crmContext;
+
         public BrowserOptions BrowserOptions { get; }
-        public ButtonTexts ButtonTexts { get; set; }
+        public string CurrentApp { get; set; }
+        public bool IsLoggedIn { get; private set; }
 
-        public SeleniumTestingContext()
+        public SeleniumTestingContext(CrmTestingContext crmContext)
         {
-            ButtonTexts = new ButtonTexts();
+            _crmContext = crmContext;
             BrowserOptions = new BrowserOptions()
             {
                 CleanSession = true,
+                StartMaximized = true,
+                UCITestMode = true,
+                DriversPath = GetDriverPath()
+
             };
+            CurrentApp = HelperMethods.GetAppSettingsValue("AppName", true);
 
-            _browser = new Lazy<UCIBrowser>(() => new UCIBrowser(BrowserOptions, ButtonTexts));
         }
 
-        public void Dispose()
+        public UCIBrowser GetBrowser()
         {
-            if (_browser.IsValueCreated)
-            {
-                _browser.Value.Dispose();
-            }
+            if (_crmContext.IsTarget("API"))
+                throw new TestExecutionException(Constants.ErrorCodes.CANT_START_BROWSER_FOR_API_TESTS);
+
+            var browser = GlobalTestingContext.BrowserManager.GetBrowser(BrowserOptions, GlobalTestingContext.ConnectionManager.CurrentUserDetails, GlobalTestingContext.ConnectionManager.Url);
+            browser.ChangeApp(CurrentApp);
+            IsLoggedIn = true;
+            return browser;
         }
+
+        private string GetDriverPath()
+        {
+            var assemblyPath = new FileInfo(Assembly.GetExecutingAssembly().Location);
+            Logger.WriteLine($"Using chrome driver path: {assemblyPath.Directory}");
+            return assemblyPath.DirectoryName;
+        }
+
     }
 }

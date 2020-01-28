@@ -3,20 +3,18 @@ using Microsoft.Dynamics365.UIAutomation.Browser;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
 using OpenQA.Selenium;
-using OpenQA.Selenium.Support.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
+using OpenQA.Selenium.Interactions;
 
 namespace Vermaat.Crm.Specflow.EasyRepro
 {
-    public class FormField
+    public class FormField : Field
     {
+
         private readonly string[] _controls;
         private readonly FormData _form;
-        private readonly UCIApp _app;
-        private readonly AttributeMetadata _metadata;
 
         private string _tabLabel;
         private string _tabName;
@@ -24,10 +22,9 @@ namespace Vermaat.Crm.Specflow.EasyRepro
         public IEnumerable<string> Controls => _controls;
 
         public FormField(FormData form, UCIApp app, AttributeMetadata attributeMetadata, string[] controls)
+            : base(app, attributeMetadata)
         {
             _form = form;
-            _app = app;
-            _metadata = attributeMetadata;
             _controls = controls;
         }
 
@@ -43,25 +40,61 @@ namespace Vermaat.Crm.Specflow.EasyRepro
         {
             if (string.IsNullOrEmpty(_tabLabel))
             {
-                _tabLabel = _app.WebDriver.ExecuteScript($"return Xrm.Page.getControl('{GetDefaultControl()}').getParent().getParent().getLabel()")?.ToString();
+                _tabLabel = App.WebDriver.ExecuteScript($"return Xrm.Page.getControl('{GetDefaultControl()}').getParent().getParent().getLabel()")?.ToString();
             }
             return _tabLabel;
         }
 
-        internal bool IsVisible()
+        public RequiredState GetRequiredState()
+        {
+            BrowserCommandResult<RequiredState> result = App.Client.Execute(BrowserOptionHelper.GetOptions($"Check field requirement"), driver =>
+            {
+                IWebElement fieldContainer = driver.WaitUntilAvailable(By.XPath(AppElements.Xpath[AppReference.Entity.TextFieldContainer].Replace("[NAME]", LogicalName)));
+                if (fieldContainer == null)
+                    throw new TestExecutionException(Constants.ErrorCodes.FIELD_NOT_ON_FORM, LogicalName);
+
+                if (fieldContainer.TryFindElement(SeleniumFunctions.Selectors.GetXPathSeleniumSelector(SeleniumSelectorItems.Entity_FormState_RequiredOrRecommended, LogicalName), out IWebElement requiredElement))
+                {
+                    if (requiredElement.GetAttribute("innerText") == "*")
+                        return RequiredState.Required;
+                    else
+                        return RequiredState.Recommended;
+                }
+                else
+                {
+                    return RequiredState.Optional;
+                }
+            });
+
+            return result.Value;
+        }
+
+        public bool IsVisible()
         {
             if (!IsTabOfFieldExpanded())
                 _form.ExpandTab(GetTabLabel());
 
-            return _app.WebDriver.WaitUntilVisible(By.XPath(
-                AppElements.Xpath[AppReference.Entity.TextFieldContainer].Replace("[NAME]", _metadata.LogicalName)), TimeSpan.FromSeconds(5));
+            return App.WebDriver.WaitUntilVisible(By.XPath(
+                AppElements.Xpath[AppReference.Entity.TextFieldContainer].Replace("[NAME]", LogicalName)), TimeSpan.FromSeconds(5));
+        }
+
+        public bool IsLocked()
+        {
+            return App.Client.Execute(BrowserOptionHelper.GetOptions($"Check field locked state"), driver =>
+            {
+                IWebElement fieldContainer = driver.WaitUntilAvailable(By.XPath(AppElements.Xpath[AppReference.Entity.TextFieldContainer].Replace("[NAME]", LogicalName)));
+                if (fieldContainer == null)
+                    throw new TestExecutionException(Constants.ErrorCodes.FIELD_NOT_ON_FORM, LogicalName);
+
+                return fieldContainer.TryFindElement(SeleniumFunctions.Selectors.GetXPathSeleniumSelector(SeleniumSelectorItems.Entity_FormState_LockedIcon, LogicalName), out IWebElement requiredElement);
+            }).Value;
         }
 
         public string GetTabName()
         {
             if (string.IsNullOrEmpty(_tabName))
             {
-                _tabName = _app.WebDriver.ExecuteScript($"return Xrm.Page.getControl('{GetDefaultControl()}').getParent().getParent().getName()")?.ToString();
+                _tabName = App.WebDriver.ExecuteScript($"return Xrm.Page.getControl('{GetDefaultControl()}').getParent().getParent().getName()")?.ToString();
             }
             return _tabName;
         }
@@ -69,166 +102,13 @@ namespace Vermaat.Crm.Specflow.EasyRepro
         public bool IsTabOfFieldExpanded()
         {
 
-            string result = _app.WebDriver.ExecuteScript($"return Xrm.Page.ui.tabs.get('{GetTabName()}').getDisplayState()")?.ToString();
+            string result = App.WebDriver.ExecuteScript($"return Xrm.Page.ui.tabs.get('{GetTabName()}').getDisplayState()")?.ToString();
             return "expanded".Equals(result, StringComparison.CurrentCultureIgnoreCase);
         }
 
-        public void SetValue(CrmTestingContext crmContext, string fieldValueText)
-        {
-            var fieldValue = ObjectConverter.ToCrmObject(_metadata.EntityLogicalName, _metadata.LogicalName, fieldValueText, crmContext, ConvertedObjectType.UserInterface);
+        
 
-            if (fieldValue != null)
-            {
-                switch (_metadata.AttributeType.Value)
-                {
-                    case AttributeTypeCode.Boolean:
-                        SetTwoOptionField((bool)fieldValue, fieldValueText);
-                        break;
-                    case AttributeTypeCode.DateTime:
-                        SetDateTimeField((DateTime)fieldValue);
-                        break;
-                    case AttributeTypeCode.Customer:
-                    case AttributeTypeCode.Lookup:
-                        SetLookupValue((EntityReference)fieldValue);
-                        break;
-                    case AttributeTypeCode.Picklist:
-                        SetOptionSetField((string)fieldValue);
-                        break;
-                    default:
-                        SetTextField((string)fieldValue);
-                        break;
-                }
-            }
-            else
-            {
-                ClearValue(crmContext);
-            }
-        }
+        
 
-        private void ClearValue(CrmTestingContext crmContext)
-        {
-            switch (_metadata.AttributeType.Value)
-            {
-                case AttributeTypeCode.Boolean:
-                    throw new InvalidOperationException("Two option fields can't be cleared");
-                case AttributeTypeCode.Customer:
-                case AttributeTypeCode.Lookup:
-                    _app.App.Entity.ClearValue(new LookupItem { Name = _metadata.LogicalName });
-                    break;
-                case AttributeTypeCode.Picklist:
-                    _app.App.Entity.ClearValue(new OptionSet { Name = _metadata.LogicalName });
-                    break;
-                default:
-                    SetValueFix(_metadata.LogicalName, null);
-                    break;
-            }
-        }
-
-        private void SetTwoOptionField(bool fieldValueBool, string fieldValueText)
-        {
-            _app.Client.Execute(BrowserOptionHelper.GetOptions($"Set Value"), driver =>
-            {
-                //var container = driver.FindElement(By.XPath($"//*[contains(@id, '{_metadata.LogicalName}-{_metadata.LogicalName}.fieldControl-checkbox-')]"));
-                var container = driver.WaitUntilAvailable(By.XPath(AppElements.Xpath[AppReference.Entity.TextFieldContainer].Replace("[NAME]", _metadata.LogicalName)));
-
-                if (container.TryFindElement(By.XPath($"//input[contains(@id, '{_metadata.LogicalName}-{_metadata.LogicalName}.fieldControl-checkbox-toggle')]"), out var checkbox))
-                {
-                    if (checkbox.Selected != fieldValueBool)
-                    {
-                        checkbox.Click();
-                    }
-                }
-                else if (container.TryFindElement(By.XPath($"//label[contains(@id, '{_metadata.LogicalName}-{_metadata.LogicalName}.fieldControl-checkbox-inner-first')]"), out var radioButton))
-                {
-                    if(radioButton.Text != fieldValueText)
-                    {
-                        radioButton.Click();
-                    }
-                }
-                else if (container.TryFindElement(By.XPath($"//select[contains(@id, '{_metadata.LogicalName}-{_metadata.LogicalName}.fieldControl-checkbox-select')]"), out var listItem))
-                {
-                    var selection = new SelectElement(listItem);
-                    selection.SelectByText(fieldValueText);
-                }
-                else
-                {
-                    throw new ArgumentException($"Field {_metadata.LogicalName} not found on the form as a two option field");
-                }
-
-                return true;
-            });
-        }
-
-        private void SetDateTimeField(DateTime fieldValue)
-        {
-            _app.App.Entity.SetValue(_metadata.LogicalName, fieldValue);
-        }
-
-        private void SetOptionSetField(string optionSetLabel)
-        {
-            _app.App.Entity.SetValue(new OptionSet { Name = _metadata.LogicalName, Value = optionSetLabel });
-        }
-
-        private void SetTextField(string fieldValue)
-        {
-            SetValueFix(_metadata.LogicalName, fieldValue);
-        }
-
-        private void SetLookupValue(EntityReference fieldValue)
-        {
-            _app.WebDriver.ExecuteScript($"Xrm.Page.getAttribute('{_metadata.LogicalName}').setValue([ {{ id: '{fieldValue.Id}', name: '{fieldValue.Name}', entityType: '{fieldValue.LogicalName}' }} ])");
-            _app.WebDriver.ExecuteScript($"Xrm.Page.getAttribute('{_metadata.LogicalName}').fireOnChange()");
-        }
-
-        /// <summary>
-        /// Set Value
-        /// </summary>
-        /// <param name="field">The field</param>
-        /// <param name="value">The value</param>
-        /// <example>xrmApp.Entity.SetValue("firstname", "Test");</example>
-        private BrowserCommandResult<bool> SetValueFix(string field, string value)
-        {
-            return _app.Client.Execute(BrowserOptionHelper.GetOptions($"Set Value"), driver =>
-            {
-                var fieldContainer = driver.WaitUntilAvailable(By.XPath(AppElements.Xpath[AppReference.Entity.TextFieldContainer].Replace("[NAME]", field)));
-
-                if (fieldContainer.FindElements(By.TagName("input")).Count > 0)
-                {
-                    var input = fieldContainer.FindElement(By.TagName("input"));
-                    if (input != null)
-                    {
-                        var currentValue = input.GetAttribute("value");
-                        var stringBuilder = new StringBuilder((value?.Length).GetValueOrDefault() + currentValue.Length);
-                        if (!string.IsNullOrEmpty(currentValue))
-                        {
-                            for (int i = 0; i < currentValue.Length; i++)
-                            {
-                                stringBuilder.Append(Keys.Backspace);
-                            }
-                        }
-
-                        if(!string.IsNullOrWhiteSpace(value)) 
-                            stringBuilder.Append(value);
-
-                        stringBuilder.Append(Keys.Tab);
-
-                        input.Click();
-                        input.SendKeys(stringBuilder.ToString());
-                    }
-                }
-                else if (fieldContainer.FindElements(By.TagName("textarea")).Count > 0)
-                {
-                    fieldContainer.FindElement(By.TagName("textarea")).Click();
-                    fieldContainer.FindElement(By.TagName("textarea")).Clear();
-                    fieldContainer.FindElement(By.TagName("textarea")).SendKeys(value);
-                }
-                else
-                {
-                    throw new Exception($"Field with name {field} does not exist.");
-                }
-
-                return true;
-            });
-        }
     }
 }

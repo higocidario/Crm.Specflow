@@ -1,9 +1,10 @@
 ﻿using Microsoft.Xrm.Sdk;
 using System;
+using Vermaat.Crm.Specflow.EasyRepro;
 
 namespace Vermaat.Crm.Specflow.Commands
 {
-    class DeleteRecordCommand : BrowserCommand
+    public class DeleteRecordCommand : BrowserCommand
     {
         private readonly EntityReference _toDelete;
         private readonly string _alias;
@@ -17,14 +18,14 @@ namespace Vermaat.Crm.Specflow.Commands
 
         protected override void ExecuteApi()
         {
-            _crmContext.Service.Delete(_toDelete);
+            GlobalTestingContext.ConnectionManager.CurrentConnection.Delete(_toDelete);
             _crmContext.RecordCache.Remove(_alias);
         }
 
         protected override void ExecuteBrowser()
         {
-            var formData = _seleniumContext.Browser.OpenRecord(_crmContext.Metadata.GetEntityMetadata(_toDelete.LogicalName), _toDelete.LogicalName, _toDelete.Id);
-            formData.Delete();
+            var formData = _seleniumContext.GetBrowser().OpenRecord(new OpenFormOptions(_toDelete));
+            formData.CommandBar.Delete();
             _crmContext.RecordCache.Remove(_alias);
         }
     }

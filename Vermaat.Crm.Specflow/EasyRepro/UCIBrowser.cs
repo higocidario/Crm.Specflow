@@ -6,86 +6,104 @@ using OpenQA.Selenium;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Web;
+using Vermaat.Crm.Specflow.Entities;
 
 namespace Vermaat.Crm.Specflow.EasyRepro
 {
-    public class UCIBrowser
+    public class UCIBrowser : IDisposable
     {
-        private UCIApp _app;
-        private string _appId;
+        private Guid? _currentAppId;
+        private string _currentAppName;
         private bool _isDisposed = false;
 
-        private Dictionary<string, FormData> _forms;
+        private readonly Dictionary<string, FormData> _forms;
+        private readonly CrmModelApps _apps;
+
+        public UCIApp App { get; }
+        public FormData LastFormData { get; private set; }
 
         static UCIBrowser()
         {
           
         }
 
-        public UCIBrowser(BrowserOptions browserOptions, ButtonTexts buttonTexts)
+        public UCIBrowser(BrowserOptions browserOptions, ButtonTexts buttonTexts, CrmModelApps apps)
         {
-            _app = new UCIApp(browserOptions, buttonTexts);
+            App = new UCIApp(browserOptions, buttonTexts);
             _forms = new Dictionary<string, FormData>();
-            _appId = null;
+            _apps = apps;
         }
 
-        public void Login(CrmConnectionString connectionString)
+        public void Login(Uri uri, UserDetails userDetails)
         {
+            Logger.WriteLine("Logging in CRM");
             if(bool.Parse(HelperMethods.GetAppSettingsValue("UCIOnly")))
             {
-                Elements.Xpath["Login_CrmMainPage"] = "//*[@data-id='topBar']";
-                AppElements.Xpath["Nav_AppMenuButton"] = "//button[@data-id='navbar-switch-app']";
+                Elements.Xpath[Reference.Login.CrmMainPage] = "//*[@data-id='topBar']";
+                AppElements.Xpath[AppReference.Navigation.AppMenuButton] = "//button[@data-id='navbar-switch-app']";
             }
-            _app.App.OnlineLogin.Login(new Uri(connectionString.Url), connectionString.Username.ToSecureString(), connectionString.Password.ToSecureString());
-            _app.App.Navigation.OpenApp(connectionString.AppName);
 
-            var queryDic = System.Web.HttpUtility.ParseQueryString(new Uri(_app.WebDriver.Url).Query);
-            _appId = queryDic["appid"];
+            App.App.OnlineLogin.Login(uri, userDetails.Username.ToSecureString(), userDetails.Password.ToSecureString());
         }
 
-        public FormData OpenRecord(EntityMetadata entityMetadata, string entityName, Guid? id = null)
+        public void ChangeApp(string appUniqueName)
         {
-            _app.Client.Execute(BrowserOptionHelper.GetOptions($"Open: {entityName}"), driver =>
+            if (appUniqueName != _currentAppName)
             {
-                Uri uri = new Uri(_app.WebDriver.Url);
-                string link = $"{uri.Scheme}://{uri.Authority}/main.aspx?etn={entityName}&pagetype=entityrecord";
+                Logger.WriteLine($"Changing app from {_currentAppName} to {appUniqueName}");
+                _currentAppId = _apps.GetAppId(appUniqueName);
+                _currentAppName = appUniqueName;
+                Logger.WriteLine($"Logged into app: {appUniqueName} (ID: {_currentAppId})");
+            }
+            else
+            {
+                Logger.WriteLine($"App name is already {_currentAppName}. No need to switch");
+            }
+        }
 
-                if (id.HasValue)
-                {
-                    link += $"&id=%7B{id:D}%7D";
-                }
-                if (!string.IsNullOrEmpty(_appId))
-                    link += $"&appid={_appId}";
+        public FormData OpenRecord(OpenFormOptions formOptions)
+        {
+            Logger.WriteLine($"Opening record {formOptions.EntityName} with ID {formOptions.EntityId}");
+            App.Client.Execute(BrowserOptionHelper.GetOptions($"Open: {formOptions.EntityName}"), driver =>
+            {
 
-                driver.Navigate().GoToUrl(link);
-                driver.WaitForPageToLoad();
-                driver.WaitUntilClickable(By.XPath(Elements.Xpath[Reference.Entity.Form]),
-                    new TimeSpan(0, 0, 30),
-                    null,
-                    d => { throw new Exception("CRM Record is Unavailable or not finished loading. Timeout Exceeded"); }
-                );
+                driver.Navigate().GoToUrl(formOptions.GetUrl(driver, _currentAppId));
+                CheckAlert(driver);
+                HelperMethods.WaitForFormLoad(driver);
+
+                if (App.Client.ScriptErrorExists())
+                    throw new TestExecutionException(Constants.ErrorCodes.FORMLOAD_SCRIPT_ERROR_ON_FORM);
 
                 return true;
             });
 
-            return GetFormData(entityMetadata, entityName);
+            return GetFormData(GlobalTestingContext.Metadata.GetEntityMetadata(formOptions.EntityName));
         }
 
-        public FormData OpenRecord(EntityMetadata entityMetadata, EntityReference crmRecord)
+        private void CheckAlert(IWebDriver driver)
         {
-            return OpenRecord(entityMetadata, crmRecord.LogicalName, crmRecord.Id);
-        }
-
-        private FormData GetFormData(EntityMetadata entityMetadata, string entityName)
-        {
-            var currentFormId = _app.WebDriver.ExecuteScript("return Xrm.Page.ui.formSelector.getCurrentItem().getId()")?.ToString();
-
-            if(!_forms.TryGetValue(entityName+currentFormId, out FormData formData))
+            try
             {
-                formData = new FormData(_app, entityMetadata);
-                _forms.Add(entityName + currentFormId, formData);
+                var alert = driver.SwitchTo().Alert();
+                alert.Accept();
+            }   
+            catch (NoAlertPresentException)
+            {
+            }
+        }
+
+        public FormData GetFormData(EntityMetadata entityMetadata)
+        {
+            var currentFormId = App.WebDriver.ExecuteScript("return Xrm.Page.ui.formSelector.getCurrentItem().getId()")?.ToString();
+
+            if(!_forms.TryGetValue(entityMetadata.LogicalName + currentFormId, out FormData formData))
+            {
+                formData = new FormData(App, entityMetadata);
+                _forms.Add(entityMetadata.LogicalName + currentFormId, formData);
             }
 
+            LastFormData = formData;
             return formData;
         }
 
@@ -100,7 +118,7 @@ namespace Vermaat.Crm.Specflow.EasyRepro
             {
                 if (disposing)
                 {
-                    _app.Dispose();
+                    App.Dispose();
                 }
 
                 _isDisposed = true;

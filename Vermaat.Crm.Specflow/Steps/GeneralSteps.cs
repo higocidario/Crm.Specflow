@@ -27,7 +27,7 @@ namespace Vermaat.Crm.Specflow.Steps
         public void GivenExistingWithValues(string entityName, string alias, Table criteria)
         {
             Entity entity = ThenRecordExists(entityName, criteria);
-            _crmContext.RecordCache.Add(alias, entity);
+            _crmContext.RecordCache.Add(alias, entity, false);
         }
 
         [Given(@"a ([^\s]+) named (.*) with the following values")]
@@ -47,6 +47,13 @@ namespace Vermaat.Crm.Specflow.Steps
             _crmContext.CommandProcessor.Execute(new MoveToBusinessProcessStageCommand(_crmContext, alias, stageName));
         }
 
+        [Given(@"a related ([^\s]+) from (.*) named (.*) with the following values")]
+        [When(@"a related ([^\s]+) from (.*) named (.*) is created with the following values")]
+        public void GivenRelatedEntityWithValues(string entityName, string parentAlias, string childAlias, Table criteria)
+        {
+            _crmContext.TableConverter.ConvertTable(entityName, criteria);
+            _crmContext.CommandProcessor.Execute(new CreateRelatedRecordCommand(_crmContext, _seleniumContext, entityName, criteria, childAlias, parentAlias));
+        }
 
         #endregion
 
@@ -90,6 +97,30 @@ namespace Vermaat.Crm.Specflow.Steps
             _crmContext.CommandProcessor.Execute(new AssignRecordCommand(_crmContext, aliasToAssign, aliasToAssignTo));
         }
 
+        [When(@"(.*) is fully merged into (.*)")]
+        public void WhenRecordsAreMerged(string subordindateAlias, string targetAlias)
+        {
+            var targetRecord = _crmContext.RecordCache.Get(targetAlias);
+            var subordinateRecord = _crmContext.RecordCache.Get(subordindateAlias);
+            _crmContext.CommandProcessor.Execute(new MergeRecordsCommand(_crmContext, targetRecord, subordinateRecord));
+        }
+
+        [When(@"The following fields of (.*) are fully merged into (.*)")]
+        public void WhenRecordsAreMergedPartial(string subordindateAlias, string targetAlias, Table mergeTable)
+        {
+            var targetRecord = _crmContext.RecordCache.Get(targetAlias);
+            var subordinateRecord = _crmContext.RecordCache.Get(subordindateAlias);
+            _crmContext.TableConverter.ConvertTable(subordinateRecord.LogicalName, mergeTable);
+            _crmContext.CommandProcessor.Execute(new MergeRecordsCommand(_crmContext, targetRecord, subordinateRecord, mergeTable));
+        }
+
+        [When(@"the following records of type ([^\s]+) are connected to (.*)")]
+        public void AssociateRecordsViaNN(string relatedEntityName, string alias, Table records)
+        {
+            _crmContext.CommandProcessor.Execute(new AssociateToNNRelationshipCommand(_crmContext, alias, relatedEntityName, records));
+        }
+
+
         #endregion
 
         #region Then
@@ -129,14 +160,25 @@ namespace Vermaat.Crm.Specflow.Steps
             DataCollection<Entity> records = _crmContext.CommandProcessor.Execute(new GetRecordsCommand(_crmContext, entityName, criteria));
             Assert.AreEqual(1, records.Count, string.Format("When looking for records for {0}, expected 1, but found {1} records", entityName, records.Count));
 
-            _crmContext.RecordCache.Add(alias, records[0]);
+            _crmContext.RecordCache.Add(alias, records[0], false);
 
             return records[0];
         }
 
+        [Then(@"(.*) has the following connected records of type ([^\s]+)")]
+        public void ThenRecordsAreConnectedViaNN(string alias, string relatedEntityName, Table records)
+        {
+            _crmContext.CommandProcessor.Execute(new AssertNNRelationshipCommand(_crmContext, alias, relatedEntityName, records));
+        }
+
+        [Given(@"that (.*)'s (.*) is named (.*)")]
+        [Then(@"(.*)'s (.*) is named (.*)")]
+        public void ThenAliasFieldIsAliased(string alias, string lookupField, string lookupAlias)
+        {
+            _crmContext.CommandProcessor.Execute(new SetLookupAsAliasCommand(_crmContext, alias, lookupField, lookupAlias));
+        }
 
         #endregion
-
 
     }
 }

@@ -4,7 +4,7 @@ using Vermaat.Crm.Specflow.EasyRepro;
 
 namespace Vermaat.Crm.Specflow.Commands
 {
-    class UpdateRecordCommand : BrowserCommand
+    public class UpdateRecordCommand : BrowserCommand
     {
         private readonly EntityReference _toUpdate;
         private readonly Table _criteria;
@@ -30,12 +30,12 @@ namespace Vermaat.Crm.Specflow.Commands
                     row[Constants.SpecFlow.TABLE_KEY], row[Constants.SpecFlow.TABLE_VALUE], _crmContext);
             }
 
-            _crmContext.Service.Update(toUpdate);
+            GlobalTestingContext.ConnectionManager.CurrentConnection.Update(toUpdate);
         }
 
         protected override void ExecuteBrowser()
         {
-            var formData = _seleniumContext.Browser.OpenRecord(_crmContext.Metadata.GetEntityMetadata(_toUpdate.LogicalName), _toUpdate.LogicalName, _toUpdate.Id);
+            var formData = _seleniumContext.GetBrowser().OpenRecord(new OpenFormOptions(_toUpdate));
             formData.FillForm(_crmContext, _criteria);
             formData.Save(true);
         }

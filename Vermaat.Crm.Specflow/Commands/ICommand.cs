@@ -8,6 +8,6 @@ namespace Vermaat.Crm.Specflow.Commands
 {
     public interface ICommand
     {
-        void Execute();
+        void Execute(CommandAction commandAction);
     }
 }

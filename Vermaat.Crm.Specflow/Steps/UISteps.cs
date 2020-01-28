@@ -15,8 +15,8 @@ namespace Vermaat.Crm.Specflow.Steps
     public class UISteps
     {
 
-        private CrmTestingContext _crmContext;
-        private SeleniumTestingContext _seleniumContext;
+        private readonly CrmTestingContext _crmContext;
+        private readonly SeleniumTestingContext _seleniumContext;
 
 
         public UISteps(SeleniumTestingContext seleniumContext, CrmTestingContext crmContext)
@@ -25,14 +25,38 @@ namespace Vermaat.Crm.Specflow.Steps
             _seleniumContext = seleniumContext;
         }
 
-        [Then("(.*)'s form has the following visbility")]
+        [Then("(.*)'s form has the following form state")]
         public void ThenFieldsAreVisibleOnForm(string alias, Table table)
         {
             var aliasRef = _crmContext.RecordCache[alias];
             _crmContext.TableConverter.ConvertTable(aliasRef.LogicalName, table);
            
-            _crmContext.CommandProcessor.Execute(new AssertFormVisiblityCommand(_crmContext, _seleniumContext, aliasRef, table));
+            _crmContext.CommandProcessor.Execute(new AssertFormStateCommand(_crmContext, _seleniumContext, aliasRef, table));
 
+        }
+
+        [Then(@"(.*) has the following form notifications")]
+        public void ThenFormNotificationExist(string alias, Table formNotifications)
+        {
+            _crmContext.CommandProcessor.Execute(new AssertFormNotificationsCommand(_crmContext, _seleniumContext, alias, formNotifications));
+        }
+
+        [Then(@"the following form notifications are on the current form")]
+        public void ThenCurrentFormNotificationExist(Table formNotifications)
+        {
+            _crmContext.CommandProcessor.Execute(new AssertFormNotificationsCommand(_crmContext, _seleniumContext, null, formNotifications));
+        }
+
+        [Then(@"the following error message appears: '(.*)'")]
+        public void ThenErrorAppears(string errorMessage)
+        {
+            _crmContext.CommandProcessor.Execute(new AssertErrorDialogCommand(_crmContext, _seleniumContext, errorMessage));
+        }
+
+        [Then("(.*)'s form has the following ribbon state")]
+        public void ThenFormHasRibbonItems(string alias, Table table)
+        {
+            _crmContext.CommandProcessor.Execute(new AssertRibbonStateCommand(_crmContext, _seleniumContext, alias, table));
         }
     }
 }

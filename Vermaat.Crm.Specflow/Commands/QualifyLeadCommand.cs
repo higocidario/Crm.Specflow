@@ -1,11 +1,12 @@
 ﻿using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
+using System;
 using Vermaat.Crm.Specflow.Entities;
 
 namespace Vermaat.Crm.Specflow.Commands
 {
-    class QualifyLeadCommand : ApiOnlyCommandFunc<EntityReferenceCollection>
+    public class QualifyLeadCommand : ApiOnlyCommandFunc<EntityReferenceCollection>
     {
         private readonly string _alias;
         private readonly bool _createAccount;
@@ -23,22 +24,12 @@ namespace Vermaat.Crm.Specflow.Commands
         public override EntityReferenceCollection Execute()
         {
             EntityReference aliasRef = _crmContext.RecordCache[_alias];
-            Entity lead = _crmContext.Service.Retrieve(aliasRef, new ColumnSet(Lead.Fields.TransactionCurrencyId, Lead.Fields.CustomerId, Lead.Fields.CampaignId));
+            var lead = new Lead(GlobalTestingContext.ConnectionManager.CurrentConnection.Retrieve(aliasRef, new ColumnSet(Lead.Fields.TransactionCurrencyId, Lead.Fields.CustomerId, Lead.Fields.CampaignId)));
 
-            QualifyLeadRequest req = new QualifyLeadRequest()
-            {
-                CreateAccount = _createAccount,
-                CreateContact = _createContact,
-                CreateOpportunity = _createOpportunity,
-                LeadId = aliasRef,
-                OpportunityCurrencyId = lead.GetAttributeValue<EntityReference>(Lead.Fields.TransactionCurrencyId),
-                OpportunityCustomerId = lead.GetAttributeValue<EntityReference>(Lead.Fields.CustomerId),
-                SourceCampaignId = lead.GetAttributeValue<EntityReference>(Lead.Fields.CampaignId),
-                Status = new OptionSetValue((int)Lead_StatusCode.Qualified)
-            };
-            req.Parameters.Add("SuppressDuplicateDetection", true);
+            Logger.WriteLine($"Qualifying Lead {lead.Id}");
+            QualifyLeadRequest req = lead.CreateQualifyLeadRequest(_createAccount, _createContact, _createOpportunity);
 
-            return _crmContext.Service.Execute<QualifyLeadResponse>(req).CreatedEntities;
+            return GlobalTestingContext.ConnectionManager.CurrentConnection.Execute<QualifyLeadResponse>(req).CreatedEntities;
         }
     }
 }

@@ -3,7 +3,7 @@ using System;
 
 namespace Vermaat.Crm.Specflow.Commands
 {
-    class MoveToNextBusinessProcessStageCommand : ApiOnlyCommand
+    public class MoveToNextBusinessProcessStageCommand : ApiOnlyCommand
     {
         private readonly string _alias;
 
@@ -28,13 +28,13 @@ namespace Vermaat.Crm.Specflow.Commands
             }
 
             if (currentStage == -1)
-                throw new InvalidOperationException("Current stage can't be found");
+                throw new TestExecutionException(Constants.ErrorCodes.CURRENT_BUSINESS_PROCESS_STAGE_NOT_FOUND);
             if (currentStage + 1 >= path.Length)
-                throw new InvalidOperationException("Current stage be the last");
+                throw new TestExecutionException(Constants.ErrorCodes.BUSINESS_PROCESS_STAGE_CANNOT_BE_LAST);
 
             var processRecord = BusinessProcessFlowHelper.GetProcessRecord(_crmContext, crmRecord, instance.Id);
             processRecord["activestageid"] = path[currentStage + 1].ToEntityReference();
-            _crmContext.Service.Update(processRecord);
+            GlobalTestingContext.ConnectionManager.CurrentConnection.Update(processRecord);
         }
     }
 }

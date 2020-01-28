@@ -14,22 +14,23 @@ namespace Vermaat.Crm.Specflow.Commands
             _seleniumContext = seleniumContext;
         }
 
-        public TResult Execute()
+        public TResult Execute(CommandAction commandAction = CommandAction.Default)
         {
-            if (HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_API))
+            if (commandAction == CommandAction.ForceApi || _crmContext.IsTarget(Constants.SpecFlow.TARGET_API))
             {
                 return ExecuteApi();
             }
-            else if (HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_Chrome) ||
-                     HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_Edge) ||
-                     HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_Firefox) ||
-                     HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_InternetExplorer))
+            else if (commandAction == CommandAction.ForceBrowser ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_Chrome) ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_Edge) ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_Firefox) ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_InternetExplorer))
             {
                 return ExecuteBrowser();
             }
             else
             {
-                throw new InvalidOperationException("Unknown tag. Use API, Chrome, Edge, Firefox or IE");
+                throw new TestExecutionException(Constants.ErrorCodes.UNKNOWN_TAG);
             }
         }
 
@@ -48,22 +49,24 @@ namespace Vermaat.Crm.Specflow.Commands
             _seleniumContext = seleniumContext;
         }
 
-        public void Execute()
+        public void Execute(CommandAction commandAction = CommandAction.Default)
         {
-            if (HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_API))
+            if (commandAction == CommandAction.ForceApi ||
+                _crmContext.IsTarget(Constants.SpecFlow.TARGET_API))
             {
                 ExecuteApi();
             }
-            else if (HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_Chrome) ||
-                     HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_Edge) ||
-                     HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_Firefox) ||
-                     HelperMethods.IsTagTargetted(Constants.SpecFlow.TARGET_InternetExplorer))
+            else if (commandAction == CommandAction.ForceBrowser ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_Chrome) ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_Edge) ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_Firefox) ||
+                     _crmContext.IsTarget(Constants.SpecFlow.TARGET_InternetExplorer))
             {
                 ExecuteBrowser();
             }
             else
             {
-                throw new InvalidOperationException("Unknown tag. Use API, Chrome, Edge, Firefox or IE");
+                throw new TestExecutionException(Constants.ErrorCodes.UNKNOWN_TAG);
             }
         }
 

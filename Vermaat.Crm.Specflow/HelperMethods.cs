@@ -1,29 +1,40 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using Microsoft.Dynamics365.UIAutomation.Api.UCI;
+using Microsoft.Dynamics365.UIAutomation.Browser;
+using Microsoft.Xrm.Sdk;
+using OpenQA.Selenium;
+using System;
 using System.Configuration;
 using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Xrm.Sdk;
+using Vermaat.Crm.Specflow.EasyRepro;
+using Vermaat.Crm.Specflow.FormLoadConditions;
 
 namespace Vermaat.Crm.Specflow
 {
     public static class HelperMethods
     {
 
-        public static string GetAppSettingsValue(string key, bool emptyAllowed = false)
+        public static string GetAppSettingsValue(string key, bool emptyAllowed = false, string defaultValue = null)
         {
-            var value = ConfigurationManager.AppSettings[key];
+            string value = ConfigurationManager.AppSettings[key];
 
             if (!emptyAllowed && string.IsNullOrEmpty(value))
-                throw new ArgumentException(string.Format("AppSetting {0} is required", key));
+                throw new TestExecutionException(Constants.ErrorCodes.APP_SETTINGS_REQUIRED, key);
 
-            return value;
+            return value ?? defaultValue;
         }
         public static bool IsLabel(this Label label, int lcid, string name)
         {
             return name.Equals(label.GetLabelInLanguage(lcid), StringComparison.CurrentCultureIgnoreCase);
+        }
+
+        public static void ExecuteWithRetry(int retryCount, int sleepTime, Action action)
+        {
+            ExecuteWithRetry(retryCount, sleepTime, () =>
+            {
+                action();
+                return true;
+            });
         }
 
         public static T ExecuteWithRetry<T>(int retryCount, int sleepTime, Func<T> action)
@@ -49,14 +60,75 @@ namespace Vermaat.Crm.Specflow
             string result = label.LocalizedLabels.Where(l => l.LanguageCode == lcid).FirstOrDefault()?.Label;
 
             if (label.UserLocalizedLabel != null && !string.IsNullOrEmpty(label.UserLocalizedLabel.Label) && string.IsNullOrEmpty(result))
-                throw new ArgumentException(string.Format("Label {0} doesn't have a translation for language {1}", label.UserLocalizedLabel.Label, lcid));
+                throw new TestExecutionException(Constants.ErrorCodes.LABEL_NOT_TRANSLATED, label.UserLocalizedLabel.Label, lcid);
 
             return result;
         }
 
-        public static bool IsTagTargetted(string target)
+        public static object CrmObjectToPrimitive(object value)
         {
-            return target.Equals(ConfigurationManager.AppSettings["Target"], StringComparison.CurrentCultureIgnoreCase);
+            if (value == null)
+                return null;
+
+            Type type = value.GetType();
+            if (type == typeof(OptionSetValue))
+            {
+                return ((OptionSetValue)value).Value;
+            }
+            else if (type == typeof(EntityReference))
+            {
+                return ((EntityReference)value).Id;
+            }
+            else if (type == typeof(Money))
+            {
+                return ((Money)value).Value;
+            }
+            else if (type == typeof(OptionSetValueCollection))
+            {
+                return ((OptionSetValueCollection)value).Where(ov => ov != null).Select(ov => ov.Value);
+            }
+            return value;
+        }
+
+        public static void WaitForFormLoad(IWebDriver driver, params IFormLoadCondition[] additionalConditions)
+        {
+            DateTime timeout = DateTime.Now.AddSeconds(30);
+
+            bool loadComplete = false;
+            while(!loadComplete)
+            {
+                loadComplete = true;
+
+                TimeSpan timeLeft = timeout.Subtract(DateTime.Now);
+                if (timeLeft.TotalMilliseconds > 0)
+                {
+                    driver.WaitForPageToLoad();
+                    driver.WaitUntilClickable(SeleniumFunctions.Selectors.GetXPathSeleniumSelector(SeleniumSelectorItems.Entity_FormLoad),
+                        timeLeft,
+                        null,
+                        d => { throw new TestExecutionException(Constants.ErrorCodes.FORM_LOAD_TIMEOUT); }
+                    );
+
+                    if(additionalConditions != null)
+                    {
+                        foreach(var condition in additionalConditions)
+                        {
+                            if(!condition.Evaluate(driver))
+                            {
+                                Logger.WriteLine("Evaluation failed. Waiting for next attempt");
+                                loadComplete = false;
+                                Thread.Sleep(100);
+                                break;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    throw new TestExecutionException(Constants.ErrorCodes.FORM_LOAD_TIMEOUT);
+                }
+            }
+            Logger.WriteLine("Form load completed");
         }
 
     }

@@ -17,49 +17,75 @@ namespace Vermaat.Crm.Specflow.EasyRepro
     {
         private readonly UCIApp _app;
         private readonly EntityMetadata _entityMetadata;
-        private Dictionary<string, FormField> _formFields;
+        private readonly Dictionary<string, FormField> _formFields;
 
         public FormField this[string attributeName] => _formFields[attributeName];
+        public CommandBarActions CommandBar { get; }
 
         public FormData(UCIApp app, EntityMetadata entityMetadata)
         {
             _app = app;
             _entityMetadata = entityMetadata;
+            CommandBar = new CommandBarActions(_app);
 
             _formFields = InitializeFormData();
         }
 
-        public void Delete()
+        public void ClickSubgridButton(string subgridName, string subgridButton)
         {
-            _app.App.CommandBar.ClickCommand(_app.ButtonTexts.Delete);
-            _app.App.Dialogs.ConfirmationDialog(true);
+            _app.Client.ClickSubgridButton(subgridName, subgridButton);
         }
 
         public bool ContainsField(string fieldLogicalName)
         {
-            return _formFields.ContainsKey(fieldLogicalName);
+            var containsField = _formFields.ContainsKey(fieldLogicalName);
+            Logger.WriteLine($"Field {fieldLogicalName} is on Form: {containsField}");
+            return containsField;
         }
 
         public void ExpandTab(string tabLabel)
         {
-            _app.App.Entity.SelectTab(tabLabel);
+            Logger.WriteLine($"Expanding tab {tabLabel}");
+            _app.Client.SelectTabFix(tabLabel);
         }
 
+        public string GetErrorDialogMessage()
+        {
+            Logger.WriteLine("Getting error dialog message");
+            return _app.Client.GetErrorDialogMessage();
+        }
+
+        public IReadOnlyCollection<FormNotification> GetFormNotifications()
+        {
+            return _app.Client.GetFormNotifications();
+        }
 
         public Guid GetRecordId()
         {
-            return _app.App.Entity.GetObjectId();
+            Logger.WriteLine("Getting Record Id");
+            var id = _app.App.Entity.GetObjectId();
+            Logger.WriteLine($"Record ID of current opened record: {id}");
+            return id;
         }
 
         public void Save(bool saveIfDuplicate)
         {
-            _app.App.Entity.Save();
+            Logger.WriteLine($"Saving Record");
+            try
+            {
+                _app.App.Entity.Save();
+            }
+            catch(InvalidOperationException ex)
+            {
+                throw new TestExecutionException(Constants.ErrorCodes.FORM_SAVE_FAILED, ex, ex.Message);
+            }
             ConfirmDuplicate(saveIfDuplicate);
             WaitUntilSaveCompleted();
         }
 
         public void FillForm(CrmTestingContext crmContext, Table formData)
         {
+            Logger.WriteLine($"Filling form");
             string currentTab = null;
             foreach (var row in formData.Rows)
             {
@@ -72,6 +98,9 @@ namespace Vermaat.Crm.Specflow.EasyRepro
                     ExpandTab(field.GetTabLabel());
                     currentTab = newTab;
                 }
+
+                Assert.IsTrue(field.IsVisible(), $"Field {row[Constants.SpecFlow.TABLE_KEY]} isn't visible");
+                Assert.IsFalse(field.IsLocked(), $"Field {row[Constants.SpecFlow.TABLE_KEY]} is read-only");
 
                 field.SetValue(crmContext, row[Constants.SpecFlow.TABLE_VALUE]);
             }
@@ -86,8 +115,24 @@ namespace Vermaat.Crm.Specflow.EasyRepro
                 var footerElement = _app.WebDriver.FindElement(By.XPath("//span[@data-id='edit-form-footer-message']"));
 
                 if (!string.IsNullOrEmpty(footerElement.Text) && footerElement.Text.ToLower() == "saving")
-                    Thread.Sleep(2500);
+                {
+                    Logger.WriteLine("Save not yet completed. Waiting..");
+                    Thread.Sleep(500);
+                }
+                else if(!string.IsNullOrEmpty(footerElement.Text) && footerElement.Text.ToLower() == "unsaved changes")
+                {
+                    var formNotifications = GetFormNotifications();
+                    throw new TestExecutionException(Constants.ErrorCodes.FORM_SAVE_FAILED, $"Detected Unsaved changes. Form Notifications: {string.Join(", ", formNotifications)}");
+                }
+                else
+                {
+                    Logger.WriteLine("Save sucessfull");
+                    saveCompleted = true;
+                }
             }
+
+            if (!saveCompleted)
+                throw new TestExecutionException(Constants.ErrorCodes.FORM_SAVE_TIMEOUT, 20);
         }
 
         private void ConfirmDuplicate(bool saveIfDuplicate)
@@ -101,7 +146,7 @@ namespace Vermaat.Crm.Specflow.EasyRepro
                     }
                     else
                     {
-                        throw new ArgumentException("Duplicate found and not selected for save");
+                        throw new TestExecutionException(Constants.ErrorCodes.DUPLICATE_RECORD_DETECTED);
                     }
                 });
         }

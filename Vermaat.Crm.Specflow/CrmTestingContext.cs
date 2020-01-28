@@ -13,43 +13,49 @@ namespace Vermaat.Crm.Specflow
     [Binding]
     public class CrmTestingContext
     {
-        public CrmService Service { get; set; }
-        public MetadataCache Metadata { get; set; }
-        public RecordBuilder RecordBuilder { get; set; }
-        public CrmConnectionString ConnectionInfo { get; set; }
-        public AliasedRecordCache RecordCache { get; set; }
-        public TableConverter TableConverter { get; set; }
+
+        public RecordBuilder RecordBuilder { get; }
+        public TableConverter TableConverter { get; }
 
         public CommandProcessor CommandProcessor { get; set; }
 
+        public AliasedRecordCache RecordCache { get; }
+
+        private readonly string[] _targets;
+
         public int LanguageCode { get; set; }
 
-        public CrmTestingContext()
+        public CrmTestingContext(ScenarioContext scenarioContext)
         {
-            ConnectionInfo = CrmConnectionString.CreateFromAppConfig();
-            Service = CrmConnectionFactory.CreateCrmConnection(ConnectionInfo);
-            Metadata = new MetadataCache(Service);
-            RecordCache = new AliasedRecordCache(Service, Metadata);
             RecordBuilder = new RecordBuilder(this);
             TableConverter = new TableConverter(this);
             LanguageCode = GetLanguageCode();
-            CommandProcessor = new CommandProcessor();
+            CommandProcessor = new CommandProcessor(scenarioContext);
+            RecordCache = new AliasedRecordCache(GlobalTestingContext.ConnectionManager, GlobalTestingContext.Metadata);
 
-            Service.RecordCache = RecordCache;
+            _targets = ConfigurationManager.AppSettings["Target"]
+                .ToLower()
+                .Split(';')
+                .Select(splitted => splitted.Trim())
+                .ToArray();
+        }
+
+        public bool IsTarget(string target)
+        {
+            if (string.IsNullOrWhiteSpace(target))
+                return false;
+
+            return _targets.Contains(target.ToLower());
         }
 
         private int GetLanguageCode()
         {
             if (!int.TryParse(HelperMethods.GetAppSettingsValue("LanguageCode"), out int lcid))
-                throw new InvalidCastException(string.Format("AppSettings languagecode must be an integer i.e. 1033 for english"));
+                throw new TestExecutionException(Constants.ErrorCodes.LANGUAGECODE_MUST_BE_INTEGER);
 
             return lcid;
         }
 
-        [AfterScenario("Cleanup")]
-        public void Cleanup()
-        {
-            RecordCache.DeleteAllCachedRecords(Service);
-        }
+        
     }
 }
